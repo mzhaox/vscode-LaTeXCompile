@@ -31,10 +31,11 @@ function activate(context) {
             var cdCmd = cdCommand(pathFull);
             exec(cdCmd + ' && type NUL > ' + quote(getFileName(pathFull)) + ".vscodeLog");
 
-            //Compile the LaTeX file
             var compileSequence = [ cdCmd, texCommand(pathFull) ].join(' && ');
             console.log(compileSequence);
             setStatusBarText('Generating', "PDF");
+            //Compile the LaTeX file; if citations are undefined, run
+            //BibTeX and the compiler twice.
             exec(compileSequence, function (err, stdout, stderr) {
                 errorCheck(pathFull, stdout, () => bibtexCheck(stdout, exec, pathFull));
             });
@@ -44,9 +45,15 @@ function activate(context) {
         }
     });
 
+    /**
+     * Checks for undefined citations, then runs BibTeX, latexCompiler, latexCompiler
+     * if there were undefined citations. Regardless, it opens the file.
+     */
     function bibtexCheck(stdout, exec, pathFull) {
+        // Check for undefined citations.
         if (stdout.indexOf("There were undefined citations") > 0) {
             var texCompileCmd = texCommand(pathFull);
+            // Command sequence to fix citations. Note the cd command is necessary.
             var bibSequence = [ 
                 cdCommand(pathFull),
                 bibCommand(pathFull),
@@ -54,14 +61,19 @@ function activate(context) {
                 texCompileCmd
             ].join(' && ');
             console.log(bibSequence);
+            // Check compilation for errors, and open if none.
             exec(bibSequence, function (err, stdo, stderr) {
                 errorCheck(pathFull, stdo, () => open(exec, getPDFName(pathFull))); 
             });
         } else {
+            // Open PDF file.
             open(exec, getPDFName(pathFull));
         }
     }
 
+    /**
+     * Opens pdfFileName.
+     */
     function open(exec, pdfFileName) {
         if (vscode.workspace.getConfiguration('latexCompile').openAfterCompile) {
             setStatusBarText('Launching', "PDF");
@@ -77,6 +89,9 @@ function activate(context) {
         }
     }
 
+    /**
+     * Checks if the compilation process contains the phrase "error."
+     */
     function errorCheck(pathFull, stdout, callback) {
         //If error is found in output, display an error to user
         if (stdout.toLowerCase().indexOf("error") > 0) {
@@ -105,28 +120,31 @@ function activate(context) {
         callback();
     }
 
-    function bibCommand(pathFull) {
+    // Returns the appropriate BibTeX command for the given file.
+    function bibCommand(file) {
         var latexCompile = vscode.workspace.getConfiguration('latexCompile'),
             bibCommand = [ latexCompile.bibCompiler,
-                           quote(getFileName(pathFull))
+                           quote(getFileName(file))
             ].join(' ');
         return bibCommand;
     }
 
-    function texCommand(pathFull) {
+    // Returns the appropriate latex compile command for the given file.
+    function texCommand(file) {
         var latexCompile = vscode.workspace.getConfiguration('latexCompile'),
             texCompileCmd = [ latexCompile.compiler,
-                              quote(getFileNameAndType(pathFull)),
+                              quote(getFileNameAndType(file)),
                               "-interaction=nonstopmode",
                               "-halt-on-error"].join(' ');
         return texCompileCmd;
     }
 
-    function cdCommand(pathFull) {
+    // Returns the appropriate change-directory command for the given file.
+    function cdCommand(file) {
         var changeDirectory = "cd "
         if(process.platform == "win322")
             changeDirectory = "cd /d ";
-        return changeDirectory + quote(getFilePath(pathFull));
+        return changeDirectory + quote(getFilePath(file));
     }    
 
     //Function to put quotation marks around path
