@@ -62,7 +62,18 @@
 					"type": ["string", "null"],
 					"default": null,
 					"description": "The main document to compile"
+				},
+				"latexCompile.withBib" : {
+					"type": "boolean",
+					"default": true,
+					"description": "Whether to compile with BibTeX"
+				},
+				"latexCompile.bibCompiler" : {
+					"type": "string",
+					"default": "bibtex",
+					"description": "The BibTeX compiler command"
 				}
+
             }
         }
 	},
