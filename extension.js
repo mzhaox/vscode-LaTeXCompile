@@ -20,26 +20,24 @@ function activate(context) {
                 }
             }
 
-            //Check for file type
             if (getFileType(pathFull) != "tex") {
-                //If not tex throw error with message
                 throw new Error("Can't create PDF, open a .tex file.");
             }
 
-            var cdCmd = cdCommand(pathFull),
-                compileSequence = [ cdCmd, texCommand(pathFull) ];
+            //Child process that will invoke all shell commands
             var exec = require('child_process').exec;
 
-            setStatusBarText('Generating', "PDF");
             //Make log file to contain console		
+            var cdCmd = cdCommand(pathFull);
             exec(cdCmd + ' && type NUL > ' + quote(getFileName(pathFull)) + ".vscodeLog");
-            //Compile.
-            exec(compileSequence.join(' && '), function (err, stdout, stderr) {
-                errorCheck(pathFull, stdout,
-                    () => bibtexCheck(stdout, exec, pathFull));
+
+            //Compile the LaTeX file
+            var compileSequence = [ cdCmd, texCommand(pathFull) ].join(' && ');
+            console.log(compileSequence);
+            setStatusBarText('Generating', "PDF");
+            exec(compileSequence, function (err, stdout, stderr) {
+                errorCheck(pathFull, stdout, () => bibtexCheck(stdout, exec, pathFull));
             });
-
-
         } catch (error) {
             //Catch error and show the user the message in the error
             vscode.window.showErrorMessage(error.message);
@@ -47,23 +45,19 @@ function activate(context) {
     });
 
     function bibtexCheck(stdout, exec, pathFull) {
-        console.log("Bibtex checking.");
         if (stdout.indexOf("There were undefined citations") > 0) {
-            console.log("Fixing undefined citations.");
             var texCompileCmd = texCommand(pathFull);
             var bibSequence = [ 
                 cdCommand(pathFull),
                 bibCommand(pathFull),
                 texCompileCmd,
                 texCompileCmd
-            ];
-            console.log(bibSequence.join(' && '));
-            exec(bibSequence.join(' && '), function (er, stdo, stde) {
-                errorCheck(pathFull, stdo,
-                    () => open(exec, getPDFName(pathFull))); 
+            ].join(' && ');
+            console.log(bibSequence);
+            exec(bibSequence, function (err, stdo, stderr) {
+                errorCheck(pathFull, stdo, () => open(exec, getPDFName(pathFull))); 
             });
         } else {
-            console.log("Just opening the file.");
             open(exec, getPDFName(pathFull));
         }
     }
@@ -83,11 +77,9 @@ function activate(context) {
         }
     }
 
-    function errorCheck(pathFull, output, callback) {
+    function errorCheck(pathFull, stdout, callback) {
         //If error is found in output, display an error to user
-        console.log("Error checking.");
-        if (String(output).toLowerCase().indexOf("error") > 0) {
-            console.log("Found an error.");
+        if (stdout.toLowerCase().indexOf("error") > 0) {
             //Show error
             var fileName = getFileName(pathFull);
             var path = getFilePath(pathFull);
@@ -100,7 +92,7 @@ function activate(context) {
                     vscode.window.showTextDocument(d);
                     // Open file, add console string, save file.
                     var fd = fs.openSync(path + fileName + ".vscodeLog", 'w+');
-                    var buffer = new Buffer(String(output));
+                    var buffer = new Buffer(stdout);
                     fs.writeSync(fd, buffer, 0, buffer.length);
                     fs.close(fd);
 
@@ -109,6 +101,7 @@ function activate(context) {
             }
             return;
         }
+        // Call the callback if successful.
         callback();
     }
 
