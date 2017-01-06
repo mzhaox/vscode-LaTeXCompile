@@ -43,76 +43,68 @@ function activate(context) {
                 throw new Error("Can't create PDF, open a .tex file.");
             }
 
-            var cdCommand = changeDirectory + quote(path),
-                texCommand = vscode.workspace.getConfiguration('latexCompile').compiler
-                                + ' ' + quote(fileNameAndType);
-            //Go to file's directory                                
-            runCmd(cdCommand);
-            //Make log file to contain console		
-            exec(cdCommand + ' && type NUL > ' + quote(fileName) + ".vscodeLog");
+            var command = changeDirectory + quote(path) + ' && ' + vscode.workspace.getConfiguration('latexCompile').compiler + ' ' + quote(fileNameAndType);
 
-            //Compile file
+            //Log the command to run
+            console.log(command);
+
             setStatusBarText('Generating', "PDF");
-            runCmd(texCommand);
 
+            //Run the command
+            var exec = require('child_process').exec,
+                cmd = exec(command);
+
+            //Make log file to contain console		
+            exec(changeDirectory + quote(path) + ' && type NUL > ' + quote(fileName) + ".vscodeLog");
+
+            //Subscribe to output
+            cmd.stdout.on('data', function(data) {
+                //Logs output to console
+                //console.log(String(data));
+
+                //If error is found in output, display an error to user
+                if (String(data).toLowerCase().indexOf("error") > 0) {
+                    //Show error
+                    vscode.window.setStatusBarMessage("Can't create PDF, see " + getFileName(pathFull) + ".vscodeLog", 12000);
+
+                    if (vscode.workspace.getConfiguration('latexCompile').openLogAfterError) {
+                        var consoleLogFile = vscode.Uri.file(path + fileName + ".vscodeLog");
+
+                        vscode.workspace.openTextDocument(consoleLogFile).then(function(d) {
+                            vscode.window.showTextDocument(d);
+                            // Open file, add console string, save file.
+                            var fd = fs.openSync(path + fileName + ".vscodeLog", 'w+');
+                            var buffer = new Buffer(String(data));
+                            fs.writeSync(fd, buffer, 0, buffer.length);
+                            fs.close(fd);
+
+                        });
+
+                    }
+
+                }
+            });
+
+            cmd.stdout.on('close', function() {
+                if (vscode.workspace.getConfiguration('latexCompile').openAfterCompile) {
+                    setStatusBarText('Launching', "PDF");
+                    if (process.platform == 'darwin') {
+                        exec('open ' + quote(pdfFileName));
+                    } else if (process.platform == 'linux') {
+                        exec('xdg-open ' + quote(pdfFileName));
+                    } else {
+                        exec(quote(pdfFileName));
+                    }
+                } else {
+                    vscode.window.showInformationMessage('PDF Compilled at ' + path);
+                }
+            });
 
         } catch (error) {
             //Catch error and show the user the message in the error
             vscode.window.showErrorMessage(error.message);
         }
     });
-
-    function runCmd(command) {
-        console.log(command);
-
-        var exec = require('child_process').exec,
-            cmd = exec(command);
-        
-        cmd.stdout.on('data', dataHandle);
-        cmd.stdout.on('close', closeHandle);
-    }
-
-    function dataHandle(data) {
-        //Logs output to console
-        //console.log(String(data));
-
-        //If error is found in output, display an error to user
-        if (String(data).toLowerCase().indexOf("error") > 0) {
-            //Show error
-            vscode.window.setStatusBarMessage("Can't create PDF, see " + getFileName(pathFull) + ".vscodeLog", 12000);
-
-            if (vscode.workspace.getConfiguration('latexCompile').openLogAfterError) {
-                var consoleLogFile = vscode.Uri.file(path + fileName + ".vscodeLog");
-
-                vscode.workspace.openTextDocument(consoleLogFile).then(function(d) {
-                    vscode.window.showTextDocument(d);
-                    // Open file, add console string, save file.
-                    var fd = fs.openSync(path + fileName + ".vscodeLog", 'w+');
-                    var buffer = new Buffer(String(data));
-                    fs.writeSync(fd, buffer, 0, buffer.length);
-                    fs.close(fd);
-
-                });
-
-            }
-
-        }
-    }
-
-    function closeHandle() {
-        if (vscode.workspace.getConfiguration('latexCompile').openAfterCompile) {
-            setStatusBarText('Launching', "PDF");
-            if (process.platform == 'darwin') {
-                exec('open ' + quote(pdfFileName));
-            } else if (process.platform == 'linux') {
-                exec('xdg-open ' + quote(pdfFileName));
-            } else {
-                exec(quote(pdfFileName));
-            }
-        } else {
-            vscode.window.showInformationMessage('PDF Compilled at ' + path);
-        }
-    }
     
     //Function to put quotation marks around path
     function quote(path) {
