@@ -20,35 +20,23 @@ function activate(context) {
                 }
             }
 
-
-            //Only path without file
-            var path = getFilePath(pathFull); // get the current file path
-
-            var changeDirectory = "cd "
-            if(process.platform == "win322")
-                changeDirectory = "cd /d ";
-
             //Check for file type
             if (getFileType(pathFull) != "tex") {
                 //If not tex throw error with message
                 throw new Error("Can't create PDF, open a .tex file.");
             }
 
-            var texCompileCmd = vscode.workspace.getConfiguration('latexCompile').compiler 
-                                    + ' ' + quote(getFileNameAndType(pathFull)),
-                cdCmd = changeDirectory + quote(path),
-                compileSequence = [ cdCmd, texCompileCmd ];
-
+            var cdCmd = cdCommand(pathFull),
+                compileSequence = [ cdCmd, texCommand(pathFull) ];
             var exec = require('child_process').exec;
-
 
             setStatusBarText('Generating', "PDF");
             //Make log file to contain console		
             exec(cdCmd + ' && type NUL > ' + quote(getFileName(pathFull)) + ".vscodeLog");
             //Compile.
             exec(compileSequence.join(' && '), function (err, stdout, stderr) {
-                compileCallback(pathFull, stdout);
-                bibtexCheckCallback(stdout, exec, cdCmd, pathFull);
+                errorCheck(pathFull, stdout,
+                    () => bibtexCheck(stdout, exec, pathFull));
             });
 
 
@@ -58,28 +46,29 @@ function activate(context) {
         }
     });
 
-    function bibtexCheckCallback(stdout, exec, cdCmd, pathFull) {
-        if (stdout.toLowerCase().indexOf("there were undefined citations") > 0) {
+    function bibtexCheck(stdout, exec, pathFull) {
+        console.log("Bibtex checking.");
+        if (stdout.indexOf("There were undefined citations") > 0) {
             console.log("Fixing undefined citations.");
-            var latexCompile = vscode.workspace.getConfiguration('latexCompile'),
-                texCompileCmd = latexCompile.compiler + ' ' + quote(getFileNameAndType(pathFull));
+            var texCompileCmd = texCommand(pathFull);
             var bibSequence = [ 
-                cdCmd,
-                latexCompile.bibCompiler + ' ' + quote(getFileName(pathFull)),
+                cdCommand(pathFull),
+                bibCommand(pathFull),
                 texCompileCmd,
                 texCompileCmd
             ];
             console.log(bibSequence.join(' && '));
             exec(bibSequence.join(' && '), function (er, stdo, stde) {
-                compileCallback(pathFull, stdo);    
-                openCallback(exec, getPDFName(pathFull));
+                errorCheck(pathFull, stdo,
+                    () => open(exec, getPDFName(pathFull))); 
             });
         } else {
-            openCallback(exec, getPDFName(pathFull));
+            console.log("Just opening the file.");
+            open(exec, getPDFName(pathFull));
         }
     }
 
-    function openCallback(exec, pdfFileName) {
+    function open(exec, pdfFileName) {
         if (vscode.workspace.getConfiguration('latexCompile').openAfterCompile) {
             setStatusBarText('Launching', "PDF");
             if (process.platform == 'darwin') {
@@ -94,14 +83,15 @@ function activate(context) {
         }
     }
 
-    function compileCallback(pathFull, output) {
-        //Logs output to console
-        //console.log(String(output));
-
+    function errorCheck(pathFull, output, callback) {
         //If error is found in output, display an error to user
+        console.log("Error checking.");
         if (String(output).toLowerCase().indexOf("error") > 0) {
+            console.log("Found an error.");
             //Show error
-            vscode.window.setStatusBarMessage("Can't create PDF, see " + getFileName(pathFull) + ".vscodeLog", 12000);
+            var fileName = getFileName(pathFull);
+            var path = getFilePath(pathFull);
+            vscode.window.setStatusBarMessage("Can't create PDF, see " + fileName + ".vscodeLog", 12000);
 
             if (vscode.workspace.getConfiguration('latexCompile').openLogAfterError) {
                 var consoleLogFile = vscode.Uri.file(path + fileName + ".vscodeLog");
@@ -117,16 +107,35 @@ function activate(context) {
                 });
 
             }
-
+            return;
         }
+        callback();
     }
 
-    function execCommand(exec, command) {
-        console.log(command);
-        var cmd = exec(command);
-        return cmd;
+    function bibCommand(pathFull) {
+        var latexCompile = vscode.workspace.getConfiguration('latexCompile'),
+            bibCommand = [ latexCompile.bibCompiler,
+                           quote(getFileName(pathFull))
+            ].join(' ');
+        return bibCommand;
     }
-    
+
+    function texCommand(pathFull) {
+        var latexCompile = vscode.workspace.getConfiguration('latexCompile'),
+            texCompileCmd = [ latexCompile.compiler,
+                              quote(getFileNameAndType(pathFull)),
+                              "-interaction=nonstopmode",
+                              "-halt-on-error"].join(' ');
+        return texCompileCmd;
+    }
+
+    function cdCommand(pathFull) {
+        var changeDirectory = "cd "
+        if(process.platform == "win322")
+            changeDirectory = "cd /d ";
+        return changeDirectory + quote(getFilePath(pathFull));
+    }    
+
     //Function to put quotation marks around path
     function quote(path) {
         return '"' + path + '"';
