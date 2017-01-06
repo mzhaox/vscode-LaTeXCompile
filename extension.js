@@ -23,19 +23,10 @@ function activate(context) {
 
             //Only path without file
             var path = getFilePath(pathFull); // get the current file path
-            //Only file name and type
-            var fileNameAndType = getFileNameAndType(pathFull);
-            var fileName = getFileName(pathFull);
-            var filePath = getFilePath(pathFull);
-            // var fileType = getFileType(pathFull);
-            var pdfFileName = filePath + fileName + ".pdf";
 
             var changeDirectory = "cd "
-
             if(process.platform == "win322")
                 changeDirectory = "cd /d ";
-
-            //console.log(changeDirectory);
 
             //Check for file type
             if (getFileType(pathFull) != "tex") {
@@ -43,46 +34,23 @@ function activate(context) {
                 throw new Error("Can't create PDF, open a .tex file.");
             }
 
-            var latexCompile = vscode.workspace.getConfiguration('latexCompile'),
-                texCompileCmd = latexCompile.compiler + ' ' + quote(fileNameAndType),
+            var texCompileCmd = vscode.workspace.getConfiguration('latexCompile').compiler 
+                                    + ' ' + quote(getFileNameAndType(pathFull)),
                 cdCmd = changeDirectory + quote(path),
                 compileSequence = [ cdCmd, texCompileCmd ];
 
-
-            setStatusBarText('Generating', "PDF");
             var exec = require('child_process').exec;
 
-            //Make log file to contain console		
-            exec(cdCmd + ' && type NUL > ' + quote(fileName) + ".vscodeLog");
 
-            //Compile and capture output.
-            var output;
+            setStatusBarText('Generating', "PDF");
+            //Make log file to contain console		
+            exec(cdCmd + ' && type NUL > ' + quote(getFileName(pathFull)) + ".vscodeLog");
+            //Compile.
             exec(compileSequence.join(' && '), function (err, stdout, stderr) {
                 compileCallback(pathFull, stdout);
-                if (stdout.toLowerCase().indexOf("there were undefined citations") > 0) {
-                    console.log("Fixing undefined citations.");
-                    exec([ latexCompile.bibCompiler + ' ' + quote(fileName),
-                        texCompileCmd,
-                        texCompileCmd
-                    ].join(' && '), function (er, stdo, stde) {
-                        compileCallback(pathFull, stdo);    
-                    });
-                }
+                bibtexCheckCallback(stdout, exec, cdCmd, pathFull);
             });
 
-
-            if (vscode.workspace.getConfiguration('latexCompile').openAfterCompile) {
-                setStatusBarText('Launching', "PDF");
-                if (process.platform == 'darwin') {
-                    exec('open ' + quote(pdfFileName));
-                } else if (process.platform == 'linux') {
-                    exec('xdg-open ' + quote(pdfFileName));
-                } else {
-                    exec(quote(pdfFileName));
-                }
-            } else {
-                vscode.window.showInformationMessage('PDF Compilled at ' + path);
-            }
 
         } catch (error) {
             //Catch error and show the user the message in the error
@@ -90,12 +58,48 @@ function activate(context) {
         }
     });
 
-    function compileCallback(pathFull, data) {
+    function bibtexCheckCallback(stdout, exec, cdCmd, pathFull) {
+        if (stdout.toLowerCase().indexOf("there were undefined citations") > 0) {
+            console.log("Fixing undefined citations.");
+            var latexCompile = vscode.workspace.getConfiguration('latexCompile'),
+                texCompileCmd = latexCompile.compiler + ' ' + quote(getFileNameAndType(pathFull));
+            var bibSequence = [ 
+                cdCmd,
+                latexCompile.bibCompiler + ' ' + quote(getFileName(pathFull)),
+                texCompileCmd,
+                texCompileCmd
+            ];
+            console.log(bibSequence.join(' && '));
+            exec(bibSequence.join(' && '), function (er, stdo, stde) {
+                compileCallback(pathFull, stdo);    
+                openCallback(exec, getPDFName(pathFull));
+            });
+        } else {
+            openCallback(exec, getPDFName(pathFull));
+        }
+    }
+
+    function openCallback(exec, pdfFileName) {
+        if (vscode.workspace.getConfiguration('latexCompile').openAfterCompile) {
+            setStatusBarText('Launching', "PDF");
+            if (process.platform == 'darwin') {
+                exec('open ' + quote(pdfFileName));
+            } else if (process.platform == 'linux') {
+                exec('xdg-open ' + quote(pdfFileName));
+            } else {
+                exec(quote(pdfFileName));
+            }
+        } else {
+            vscode.window.showInformationMessage('PDF Compilled at ' + path);
+        }
+    }
+
+    function compileCallback(pathFull, output) {
         //Logs output to console
-        //console.log(String(data));
+        //console.log(String(output));
 
         //If error is found in output, display an error to user
-        if (String(data).toLowerCase().indexOf("error") > 0) {
+        if (String(output).toLowerCase().indexOf("error") > 0) {
             //Show error
             vscode.window.setStatusBarMessage("Can't create PDF, see " + getFileName(pathFull) + ".vscodeLog", 12000);
 
@@ -106,7 +110,7 @@ function activate(context) {
                     vscode.window.showTextDocument(d);
                     // Open file, add console string, save file.
                     var fd = fs.openSync(path + fileName + ".vscodeLog", 'w+');
-                    var buffer = new Buffer(String(data));
+                    var buffer = new Buffer(String(output));
                     fs.writeSync(fd, buffer, 0, buffer.length);
                     fs.close(fd);
 
@@ -128,6 +132,10 @@ function activate(context) {
         return '"' + path + '"';
     }
     
+    //Function to get the name of the PDF
+    function getPDFName(file) {
+        return getFilePath(file) + getFileName(file) + ".pdf";
+    }
     //Function to get file name and type
     function getFileNameAndType(file) {
         var forwardSlash = file.lastIndexOf("/");
