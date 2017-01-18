@@ -51,8 +51,16 @@ function activate(context) {
      */
     function bibtexCheck(stdout, exec, pathFull) {
         // Check for undefined citations.
-        if (stdout.indexOf("There were undefined citations") > 0) {
+        let udCites = stdout.indexOf("There were undefined citations") >= 0,
+            udRefs = stdout.indexOf("There were undefined references") >= 0;
+        if (udCites || udRefs) {
             var texCompileCmd = texCommand(pathFull);
+            if (udRefs && !udCites) {
+                exec(texCommand, function (err, stdo, stderr) {
+                    errorCheck(pathFull, stdo, () => open(exec, getPDFName(pathFull)));
+                });
+                return;
+            }
             // Command sequence to fix citations. Note the cd command is necessary.
             var bibSequence = [ 
                 cdCommand(pathFull),
